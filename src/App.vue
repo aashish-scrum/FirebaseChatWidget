@@ -84,6 +84,8 @@ export default {
 		const state = reactive({
 			operator : '',
 			visitor : '',
+			operator_name : '',
+			visitor_name : '',
 			messages: []
 		});
 
@@ -98,6 +100,8 @@ export default {
 					if(typeof response.data.operator != 'object'){
 						state.operator = response.data.operator;
 						state.visitor = response.data.visitor;
+						state.operator_name = response.data.operator_name;
+						state.visitor_name = response.data.visitor_name;
 						inputUsername.value = "";
 						inputEmail.value = "";
 						inputPhone.value = "";
@@ -127,11 +131,13 @@ export default {
 			}
 
 			const message = {
-				operator: state.operator,
-				visitor: state.visitor,
+				operator_name: state.operator_name,
+				visitor_name: state.visitor_name,
 				sender : state.visitor,
                 receiver : state.operator,
-				content: inputMessage.value
+				content: inputMessage.value,
+				read : 0,
+				timestamp : Date.now()
 			}
 
 			messagesRef.push(message);
@@ -140,6 +146,13 @@ export default {
 
 		const scrollBottom = () => {
 			if (state.messages.length > 1 && state.visitor != '') {
+				state.messages.forEach(row => {
+                    if(row.read == 0 && row.sender == state.operator){
+                        db.database().ref("messages/"+row.id).update({
+                            read : 1,
+                        });
+                    }
+                });
 				let el = hasScrolledToBottom.value;
 				el.scrollTop = el.scrollHeight;
 			}
@@ -156,11 +169,13 @@ export default {
                     if((data[key].sender == state.visitor && data[key].receiver == state.operator) || (data[key].sender == state.operator && data[key].receiver == state.visitor)){
 						messages.push({
 							id: key,
-							operator: data[key].operator,
-							visitor: data[key].visitor,
+							operator_name: data[key].operator_name,
+							visitor_name: data[key].visitor_name,
 							sender : data[key].sender,
 							receiver : data[key].receiver,
-							content: data[key].content
+							content: data[key].content,
+							read : data[key].read,
+							timestamp : data[key].timestamp
 						});
 					}
 				});
