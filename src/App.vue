@@ -24,25 +24,29 @@
 						</button>
 					</div>
 				</header>
-				<div class="conversation__body" v-if="state.username === '' || state.username === null">
+				<div class="conversation__body" v-if="state.visitor === '' || state.visitor === null">
 					<form class="login-form" @submit.prevent="Login">
 						<div class="form-inner">
 							<h1>Login to FireChat</h1>
 							<label for="username">Username</label>
-							<input type="text" v-model="inputUsername" placeholder="Please enter your username..." />
+							<input type="text" v-model="inputUsername" placeholder="Please enter your name..." />
+							<input type="email" v-model="inputEmail" placeholder="Please enter your Email..." />
+							<input type="text" v-model="inputPhone" placeholder="Please enter your phone..." />
 							<input type="submit" value="Login" />
 						</div>
 					</form>
 				</div>
 				<div class="conversation__body" ref="hasScrolledToBottom" v-else>
 					<template v-for="message in state.messages" :key="message.key">
-						<div class="conversation__bubble"
-							:class="(message.username == state.username) ? 'conversation__bubble--right' : 'conversation__bubble--left'">
+						<div class="conversation__bubble conversation__bubble--right" v-if="message.sender == state.visitor">
+							<p class="conversation__text">{{ message.content }}</p>
+						</div>
+						<div class="conversation__bubble conversation__bubble--left" v-else-if="message.sender == state.operator">
 							<p class="conversation__text">{{ message.content }}</p>
 						</div>
 					</template>
 				</div>
-				<footer v-if="state.username != ''">
+				<footer v-if="state.visitor != ''">
 					<form class="conversation__footer" @submit.prevent="SendMessage">
 						<input type="text" class="conversation__write" placeholder="Write a message..."
 							v-model="inputMessage" />
@@ -63,28 +67,52 @@
 
 <script>
 import { reactive, onMounted, onUpdated, ref } from 'vue';
+import axios from 'axios';
 import db from './db';
 
 export default {
 	setup() {
+		const API_URL = "http://192.168.2.116:8000";
+		
 		const inputUsername = ref("");
+		const inputEmail = ref("");
+		const inputPhone = ref("");
 		const inputMessage = ref("");
 		let isBoxOpen = ref('minimize');
-		let hasScrolledToBottom = ref('')
+		let hasScrolledToBottom = ref('');
+
 		const state = reactive({
-			username: "",
+			operator : '',
+			visitor : '',
 			messages: []
 		});
 
-		const Login = () => {
-			if (inputUsername.value != "" || inputUsername.value != null) {
-				state.username = inputUsername.value;
-				inputUsername.value = "";
+		const Login = async () => {
+			if ((inputUsername.value != "" || inputUsername.value != null) && (inputEmail.value != "" || inputEmail.value != null)) {
+				let visitor = {
+					username: inputUsername.value,
+					email : inputEmail.value,
+					phone : inputPhone.value,
+				};
+				axios.post(API_URL+'/api/visitor/auth', visitor).then(response => {
+					if(typeof response.data.operator != 'object'){
+						state.operator = response.data.operator;
+						state.visitor = response.data.visitor;
+						inputUsername.value = "";
+						inputEmail.value = "";
+						inputPhone.value = "";
+						fetchMassages()
+					}
+				});
 			}
 		}
 
 		const Logout = () => {
-			state.username = "";
+			axios.get(API_URL+'/api/visitor/logout/'+state.operator+'/'+state.visitor).then(response => {
+				
+			});
+			state.operator = "";
+			state.visitor = "";
 		}
 
 		const toggleBox = () => {
@@ -99,7 +127,10 @@ export default {
 			}
 
 			const message = {
-				username: state.username,
+				operator: state.operator,
+				visitor: state.visitor,
+				sender : state.visitor,
+                receiver : state.operator,
 				content: inputMessage.value
 			}
 
@@ -108,13 +139,13 @@ export default {
 		}
 
 		const scrollBottom = () => {
-			if (state.messages.length > 1 && state.username != '') {
+			if (state.messages.length > 1 && state.visitor != '') {
 				let el = hasScrolledToBottom.value;
 				el.scrollTop = el.scrollHeight;
 			}
 		}
 
-		onMounted(() => {
+		const fetchMassages = () => {
 			const messagesRef = db.database().ref("messages");
 
 			messagesRef.on('value', snapshot => {
@@ -122,25 +153,36 @@ export default {
 				let messages = [];
 
 				Object.keys(data).forEach(key => {
-					messages.push({
-						id: key,
-						username: data[key].username,
-						content: data[key].content
-					});
+                    if((data[key].sender == state.visitor && data[key].receiver == state.operator) || (data[key].sender == state.operator && data[key].receiver == state.visitor)){
+						messages.push({
+							id: key,
+							operator: data[key].operator,
+							visitor: data[key].visitor,
+							sender : data[key].sender,
+							receiver : data[key].receiver,
+							content: data[key].content
+						});
+					}
 				});
 
 				state.messages = messages;
 			});
+		}
+
+		onMounted(() => {
 		});
 		onUpdated(() => {
 			scrollBottom();
 		})
 		return {
 			inputUsername,
+			inputEmail,
+			inputPhone,
 			Login,
 			state,
 			inputMessage,
 			SendMessage,
+			fetchMassages,
 			toggleBox,
 			isBoxOpen,
 			Logout,
