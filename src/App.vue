@@ -28,10 +28,9 @@
 					<form class="login-form" @submit.prevent="Login">
 						<div class="form-inner">
 							<h1>Login to FireChat</h1>
-							<label for="username">Username</label>
 							<input type="text" v-model="inputUsername" placeholder="Please enter your name..." />
 							<input type="email" v-model="inputEmail" placeholder="Please enter your Email..." />
-							<input type="text" v-model="inputPhone" placeholder="Please enter your phone..." />
+							<input type="text" v-model="inputPhone" placeholder="Please enter your phone..." /><br>
 							<input type="submit" value="Login" />
 						</div>
 					</form>
