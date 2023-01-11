@@ -8,7 +8,6 @@
 						<span class="conversation__name">ChatBox</span>
 					</div>
 					<div class="conversation__header-actions">
-						<button class="logout" @click="Logout">Logout</button>
 						<button class="conversation__btn btn btn--close" title="Close chat" @click="toggleBox">
 							<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24"
 								fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
@@ -25,12 +24,10 @@
 					</div>
 				</header>
 				<div class="conversation__body" v-if="state.visitor === '' || state.visitor === null">
-					<form class="login-form" @submit.prevent="Login">
+					<form class="login-form" @submit.prevent="StartChat">
 						<div class="form-inner">
-							<h1>Login to FireChat</h1>
-							<input type="text" v-model="inputUsername" placeholder="Please enter your name..." />
-							<input type="email" v-model="inputEmail" placeholder="Please enter your Email..." />
-							<input type="text" v-model="inputPhone" placeholder="Please enter your phone..." /><br>
+							<label for="">Ask your Question <span style="color:red;">*</span></label>
+							<input type="text" v-model="inputQuestion" class="form-control" /><br>
 							<input type="submit" value="Login" />
 						</div>
 					</form>
@@ -73,49 +70,46 @@ export default {
 	setup() {
 		const API_URL = "http://192.168.2.116:8000";
 		
-		const inputUsername = ref("");
-		const inputEmail = ref("");
-		const inputPhone = ref("");
+		const inputQuestion = ref("");
 		const inputMessage = ref("");
 		let isBoxOpen = ref('minimize');
 		let hasScrolledToBottom = ref('');
-
 		const state = reactive({
 			operator : '',
 			visitor : '',
-			operator_name : '',
-			visitor_name : '',
 			messages: []
 		});
 
-		const Login = async () => {
-			if ((inputUsername.value != "" || inputUsername.value != null) && (inputEmail.value != "" || inputEmail.value != null)) {
-				let visitor = {
-					username: inputUsername.value,
-					email : inputEmail.value,
-					phone : inputPhone.value,
-				};
-				axios.post(API_URL+'/api/visitor/auth', visitor).then(response => {
-					if(typeof response.data.operator != 'object'){
-						state.operator = response.data.operator;
-						state.visitor = response.data.visitor;
-						state.operator_name = response.data.operator_name;
-						state.visitor_name = response.data.visitor_name;
-						inputUsername.value = "";
-						inputEmail.value = "";
-						inputPhone.value = "";
-						fetchMassages()
-					}
-				});
-			}
+		const randomNumber = (min, max) => { 
+			min = Math.ceil(min);
+			max = Math.floor(max);
+			return Math.floor(Math.random() * (max - min + 1)) + min;
 		}
 
-		const Logout = () => {
-			axios.get(API_URL+'/api/visitor/logout/'+state.operator+'/'+state.visitor).then(response => {
-				
-			});
-			state.operator = "";
-			state.visitor = "";
+		const StartChat = async () => {
+			if (inputQuestion.value != "" || inputQuestion.value != null) {
+				let visitor = {
+					visitor_id : `V${randomNumber(100000000000000,999999999999999)}`,
+					message: inputQuestion.value,
+					timestamp : Date.now()
+				};
+				console.log(visitor);
+				db.collection("visitors").add(visitor)
+				.then(() => {
+					state.visitor = visitor.visitor_id;
+					state.messages.push({
+						sender : visitor.visitor_id,
+						receiver : '',
+						content: visitor.message,
+						read : 0,
+						timestamp : Date.now()
+					});
+					console.log("Document successfully written!");
+				})
+				.catch((error) => {
+					console.error("Error writing document: ", error);
+				});
+			}
 		}
 
 		const toggleBox = () => {
@@ -130,8 +124,6 @@ export default {
 			}
 
 			const message = {
-				operator_name: state.operator_name,
-				visitor_name: state.visitor_name,
 				sender : state.visitor,
                 receiver : state.operator,
 				content: inputMessage.value,
@@ -189,17 +181,15 @@ export default {
 			scrollBottom();
 		})
 		return {
-			inputUsername,
-			inputEmail,
-			inputPhone,
-			Login,
+			inputQuestion,
+			StartChat,
+			randomNumber,
 			state,
 			inputMessage,
 			SendMessage,
 			fetchMassages,
 			toggleBox,
 			isBoxOpen,
-			Logout,
 			scrollBottom,
 			hasScrolledToBottom
 		}
