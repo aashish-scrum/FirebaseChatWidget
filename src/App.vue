@@ -8,6 +8,7 @@
 						<span class="conversation__name">ChatBox</span>
 					</div>
 					<div class="conversation__header-actions">
+						<a href="javascript:void(0)" v-if="state.data != ''" style="font-size: x-small;padding: 15px 10px;" @click="endChat()">End Chat</a>
 						<button class="conversation__btn btn btn--close" title="Close chat" @click="toggleBox">
 							<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24"
 								fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
@@ -23,7 +24,7 @@
 						</button>
 					</div>
 				</header>
-				<div class="conversation__body" v-if="state.visitor === '' || state.visitor === null">
+				<div class="conversation__body" v-if="state.data == '' || state.data === null">
 					<form class="login-form" @submit.prevent="StartChat">
 						<div class="form-inner">
 							<label for="">Ask your Question <span style="color:red;">*</span></label>
@@ -34,15 +35,15 @@
 				</div>
 				<div class="conversation__body" ref="hasScrolledToBottom" v-else>
 					<template v-for="message in state.messages" :key="message.key">
-						<div class="conversation__bubble conversation__bubble--right" v-if="message.sender == state.visitor">
-							<p class="conversation__text">{{ message.content }}</p>
+						<div class="conversation__bubble conversation__bubble--right" v-if="message.sender == state.data.visitor_id">
+							<p class="conversation__text">{{ message.message }}</p>
 						</div>
-						<div class="conversation__bubble conversation__bubble--left" v-else-if="message.sender == state.operator">
-							<p class="conversation__text">{{ message.content }}</p>
+						<div class="conversation__bubble conversation__bubble--left" v-else-if="message.sender == state.data.operator_id">
+							<p class="conversation__text">{{ message.message }}</p>
 						</div>
 					</template>
 				</div>
-				<footer v-if="state.visitor != ''">
+				<footer v-if="state.data != ''">
 					<form class="conversation__footer" @submit.prevent="SendMessage">
 						<input type="text" class="conversation__write" placeholder="Write a message..."
 							v-model="inputMessage" />
@@ -74,9 +75,9 @@ export default {
 		const inputMessage = ref("");
 		let isBoxOpen = ref('minimize');
 		let hasScrolledToBottom = ref('');
+
 		const state = reactive({
-			operator : '',
-			visitor : '',
+			data : (localStorage.getItem("visitor_data") !== null) ? JSON.parse(localStorage.getItem("visitor_data")) : '',
 			messages: []
 		});
 
@@ -88,23 +89,36 @@ export default {
 
 		const StartChat = async () => {
 			if (inputQuestion.value != "" || inputQuestion.value != null) {
-				let visitor = {
-					visitor_id : `V${randomNumber(100000000000000,999999999999999)}`,
-					message: inputQuestion.value,
-					timestamp : Date.now()
+				let id = `V${randomNumber(100000000000000,999999999999999)}`;
+				let pendingVisitor = {
+					visitor_id : id,
+					type : 'pending',
+					message : inputQuestion.value,
+					timestamp : Date.now(),
 				};
-				console.log(visitor);
-				db.collection("visitors").add(visitor)
+				db.collection("visitors").doc(id).set(pendingVisitor)
 				.then(() => {
-					state.visitor = visitor.visitor_id;
 					state.messages.push({
-						sender : visitor.visitor_id,
-						receiver : '',
-						content: visitor.message,
+						sender : id,
+						receiver : null,
+						message : inputQuestion.value,
 						read : 0,
-						timestamp : Date.now()
+						timestamp : Date.now(),
 					});
 					console.log("Document successfully written!");
+					state.data = pendingVisitor;
+					localStorage.setItem('visitor_data', JSON.stringify(pendingVisitor));
+					db.collection("visitors").where("visitor_id", "==", id)
+						.onSnapshot((querySnapshot) => {
+							querySnapshot.docChanges().forEach((change) => {
+								if (change.type === "modified") {
+									state.data = change.doc.data();
+									localStorage.setItem('visitor_data', JSON.stringify(change.doc.data()));
+									fetchMassages();
+								}
+							});
+						});
+
 				})
 				.catch((error) => {
 					console.error("Error writing document: ", error);
@@ -117,69 +131,64 @@ export default {
 		}
 
 		const SendMessage = () => {
-			const messagesRef = db.database().ref("messages");
-
 			if (inputMessage.value === "" || inputMessage.value === null) {
 				return;
 			}
-
+			const messagesRef = db.collection('chat_room').doc(state.data.chat_room_id).collection('messages');
 			const message = {
-				sender : state.visitor,
-                receiver : state.operator,
-				content: inputMessage.value,
-				read : 0,
-				timestamp : Date.now()
+				sender: state.data.visitor_id,
+				receiver: state.data.operator_id,
+				message: inputMessage.value,
+				read: 0,
+				timestamp: Date.now()
 			}
-
-			messagesRef.push(message);
+			messagesRef.add(message);
 			inputMessage.value = "";
 		}
 
 		const scrollBottom = () => {
-			if (state.messages.length > 1 && state.visitor != '') {
-				state.messages.forEach(row => {
-                    if(row.read == 0 && row.sender == state.operator){
-                        db.database().ref("messages/"+row.id).update({
-                            read : 1,
-                        });
-                    }
-                });
+			if (state.messages.length > 1 && state.data != '') {
+				db.collection("chat_room").doc(state.data.chat_room_id)
+					.collection('messages').where("read", "==", 0).where("sender", "==", state.data.operator_id)
+					.onSnapshot((querySnapshot) => {
+						querySnapshot.forEach((doc) => {
+							db.collection("chat_room").doc(state.data.chat_room_id).collection('messages').doc(doc.id).update({read:1});
+						});
+					});
+
 				let el = hasScrolledToBottom.value;
 				el.scrollTop = el.scrollHeight;
 			}
 		}
 
 		const fetchMassages = () => {
-			const messagesRef = db.database().ref("messages");
-
-			messagesRef.on('value', snapshot => {
-				const data = snapshot.val();
-				let messages = [];
-
-				Object.keys(data).forEach(key => {
-                    if((data[key].sender == state.visitor && data[key].receiver == state.operator) || (data[key].sender == state.operator && data[key].receiver == state.visitor)){
-						messages.push({
-							id: key,
-							operator_name: data[key].operator_name,
-							visitor_name: data[key].visitor_name,
-							sender : data[key].sender,
-							receiver : data[key].receiver,
-							content: data[key].content,
-							read : data[key].read,
-							timestamp : data[key].timestamp
+			if(state.data != ''){
+				db.collection('chat_room').doc(state.data.chat_room_id)
+					.collection('messages').orderBy("timestamp").onSnapshot((querySnapshot) => {
+						let messages = [];
+						querySnapshot.forEach((doc) => {
+							messages.push(doc.data());
 						});
-					}
+						state.messages = messages;
 				});
+			}
+		}
 
-				state.messages = messages;
-			});
+		const endChat = () => {
+			localStorage.removeItem('visitor_data');
+			db.collection("visitors").doc(state.data.visitor_id).update({type : 'closed'});
+			state.data = '';
+			state.messages = [];
 		}
 
 		onMounted(() => {
-		});
+			fetchMassages();
+		})
+
 		onUpdated(() => {
 			scrollBottom();
-		})
+		});
+		
 		return {
 			inputQuestion,
 			StartChat,
@@ -191,6 +200,7 @@ export default {
 			toggleBox,
 			isBoxOpen,
 			scrollBottom,
+			endChat,
 			hasScrolledToBottom
 		}
 	}
