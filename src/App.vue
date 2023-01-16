@@ -115,10 +115,10 @@ export default {
 									state.data = change.doc.data();
 									localStorage.setItem('visitor_data', JSON.stringify(change.doc.data()));
 									fetchMassages();
+									inputQuestion.value = '';
 								}
 							});
 						});
-
 				})
 				.catch((error) => {
 					console.error("Error writing document: ", error);
@@ -170,6 +170,11 @@ export default {
 							messages.push(doc.data());
 						});
 						state.messages = messages;
+						if(state.messages.length == 0){
+							localStorage.removeItem('visitor_data');
+							state.data = '';
+							state.messages = [];
+						}
 				});
 			}
 		}
