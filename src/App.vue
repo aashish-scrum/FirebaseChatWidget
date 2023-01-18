@@ -42,6 +42,9 @@
 							<p class="conversation__text">{{ message.message }}</p>
 						</div>
 					</template>
+					<div v-if="state.data.type == 'closedbyoperator'" style="border-left: 5px solid #54e1ff; background-color: #54e1ff30; padding: 3px 10px; border-radius: 5px; display: flex; justify-content: space-between; align-items: center;" >
+						<p style="font-size: 10px; font-weight: 600;">Operator has ended the chat.</p>
+					</div>
 				</div>
 				<footer v-if="state.data != ''">
 					<form class="conversation__footer" @submit.prevent="SendMessage">
@@ -75,7 +78,7 @@ export default {
 		const inputMessage = ref("");
 		let isBoxOpen = ref('minimize');
 		let hasScrolledToBottom = ref('');
-
+		var unsubscribe;
 		const state = reactive({
 			data : (localStorage.getItem("visitor_data") !== null) ? JSON.parse(localStorage.getItem("visitor_data")) : '',
 			messages: []
@@ -88,7 +91,7 @@ export default {
 		}
 
 		const StartChat = async () => {
-			if (inputQuestion.value != "" || inputQuestion.value != null) {
+			if (inputQuestion.value.trim().length > 0 && state.data.visitor_id === undefined) {
 				let id = `V${randomNumber(100000000000000,999999999999999)}`;
 				let pendingVisitor = {
 					visitor_id : id,
@@ -96,32 +99,40 @@ export default {
 					message : inputQuestion.value,
 					timestamp : Date.now(),
 				};
+				localStorage.setItem('visitor_data', JSON.stringify(pendingVisitor));
+				state.data = pendingVisitor;
 				db.collection("visitors").doc(id).set(pendingVisitor)
 				.then(() => {
-					state.messages.push({
-						sender : id,
-						receiver : null,
-						message : inputQuestion.value,
-						read : 0,
-						timestamp : Date.now(),
-					});
 					console.log("Document successfully written!");
-					state.data = pendingVisitor;
-					localStorage.setItem('visitor_data', JSON.stringify(pendingVisitor));
-					db.collection("visitors").where("visitor_id", "==", id)
-						.onSnapshot((querySnapshot) => {
-							querySnapshot.docChanges().forEach((change) => {
-								if (change.type === "modified") {
-									state.data = change.doc.data();
-									localStorage.setItem('visitor_data', JSON.stringify(change.doc.data()));
-									fetchMassages();
-									inputQuestion.value = '';
-								}
-							});
-						});
+					SyncData();
+					inputQuestion.value = '';
 				})
 				.catch((error) => {
 					console.error("Error writing document: ", error);
+				});
+			}
+		}
+
+		const SyncData = () => {
+			if(state.data.visitor_id !== undefined){
+				if(state.data.type == 'pending'){
+					state.messages.push({
+						sender : state.data.visitor_id,
+						receiver : null,
+						message : state.data.message,
+						read : 0,
+						timestamp : state.data.timestamp,
+					});
+				}
+				unsubscribe = db.collection("visitors").where("visitor_id", "==", state.data.visitor_id)
+				.onSnapshot((querySnapshot) => {
+					querySnapshot.docChanges().forEach((change) => {
+						if (change.type === "modified") {
+							state.data = change.doc.data();
+							localStorage.setItem('visitor_data', JSON.stringify(change.doc.data()));
+							fetchMassages();
+						}
+					});
 				});
 			}
 		}
@@ -131,7 +142,8 @@ export default {
 		}
 
 		const SendMessage = () => {
-			if (inputMessage.value === "" || inputMessage.value === null) {
+			if (inputMessage.value.trim().length == 0 || state.data.type != 'active') {
+				inputMessage.value = "";
 				return;
 			}
 			const messagesRef = db.collection('chat_room').doc(state.data.chat_room_id).collection('messages');
@@ -162,7 +174,13 @@ export default {
 		}
 
 		const fetchMassages = () => {
-			if(state.data != ''){
+			if(state.data != '' && state.data.type == 'closedbyoperator'){
+				if(localStorage.getItem("messages") === null){
+					localStorage.setItem('messages', state.data.messages);
+				}
+				state.messages = JSON.parse(localStorage.getItem("messages"));
+			}
+			if(state.data != '' && state.data.type == 'active'){
 				db.collection('chat_room').doc(state.data.chat_room_id)
 					.collection('messages').orderBy("timestamp").onSnapshot((querySnapshot) => {
 						let messages = [];
@@ -170,25 +188,25 @@ export default {
 							messages.push(doc.data());
 						});
 						state.messages = messages;
-						if(state.messages.length == 0){
-							localStorage.removeItem('visitor_data');
-							state.data = '';
-							state.messages = [];
-						}
 				});
 			}
 		}
 
 		const endChat = () => {
+			unsubscribe();
+			if(state.data.type == 'active'){
+				db.collection("visitors").doc(state.data.visitor_id).update({type : 'closedbyvisitor',timestamp : Date.now()});
+			}
 			localStorage.removeItem('visitor_data');
-			db.collection("visitors").doc(state.data.visitor_id).update({type : 'closed'});
+			localStorage.removeItem('messages');
 			state.data = '';
 			state.messages = [];
 		}
 
 		onMounted(() => {
+			SyncData();
 			fetchMassages();
-		})
+		});
 
 		onUpdated(() => {
 			scrollBottom();
@@ -197,6 +215,7 @@ export default {
 		return {
 			inputQuestion,
 			StartChat,
+			SyncData,
 			randomNumber,
 			state,
 			inputMessage,
@@ -216,14 +235,14 @@ export default {
 @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@500&display=swap');
 
 // Resets
-* {
+#chat-widget * {
 	margin: 0;
 	padding: 0;
 	box-sizing: border-box;
 	transition: all 150ms ease-in-out;
 }
 
-button {
+#chat-widget button {
 	border: 0;
 	background-color: transparent;
 	cursor: pointer;
@@ -267,11 +286,11 @@ button {
 
 
 // Global scope classes to use with JS
-div.minimize {
+#chat-widget div.minimize {
 	height: 40px;
 }
 
-.conversation__bubble--left {
+#chat-widget .conversation__bubble--left {
 	position: relative;
 
 	.conversation__text {
@@ -293,7 +312,7 @@ div.minimize {
 	}
 }
 
-.conversation__bubble--right {
+#chat-widget .conversation__bubble--right {
 	position: relative;
 
 	.conversation__text {
@@ -315,16 +334,14 @@ div.minimize {
 	}
 }
 
-
-
 // Everything else
-body {
+#chat-widget {
 	font-family: 'Poppins', sans-serif;
 	color: hsl(213, 56%, 16%);
 	overflow-y: hidden;
 }
 
-.mask {
+#chat-widget .mask {
 	width: 300px;
 	height: 400px;
 	overflow: hidden;
@@ -344,7 +361,7 @@ body {
 	}
 }
 
-.container {
+#chat-widget .container {
 	width: 600px;
 	height: 400px;
 	display: flex;
@@ -359,7 +376,7 @@ body {
 	}
 }
 
-.conversation {
+#chat-widget .conversation {
 	width: 300px;
 	height: 400px;
 	display: flex;
@@ -417,7 +434,7 @@ body {
 }
 
 
-.conversation {
+#chat-widget .conversation {
 
 	&__info {
 		display: inline-flex;
