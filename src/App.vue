@@ -29,7 +29,7 @@
 						<div class="form-inner">
 							<label for="">Ask your Question <span style="color:red;">*</span></label>
 							<input type="text" v-model="inputQuestion" class="form-control" /><br>
-							<input type="submit" value="Login" />
+							<input type="submit" value="Start Chat" />
 						</div>
 					</form>
 				</div>
@@ -46,7 +46,7 @@
 						<p style="font-size: 10px; font-weight: 600;">Operator has ended the chat.</p>
 					</div>
 				</div>
-				<footer v-if="state.data != ''">
+				<footer v-if="state.data != '' && state.data.type != 'closedbyoperator'">
 					<form class="conversation__footer" @submit.prevent="SendMessage">
 						<input type="text" class="conversation__write" placeholder="Write a message..."
 							v-model="inputMessage" />
@@ -59,6 +59,9 @@
 							</svg>
 						</button>
 					</form>
+				</footer>
+				<footer v-else-if="state.data.type == 'closedbyoperator'">
+					<button class="btn" style="width: 100%;color:whitesmoke;background-color: #4867cb;" @click="endChat()">End Chat</button>
 				</footer>
 			</section>
 		</div>
@@ -73,9 +76,12 @@ import db from './db';
 export default {
 	setup() {
 		const API_URL = "http://192.168.2.116:8000";
-		
+		const $_Chat_Property = window.$_Chat_AccountKey;
+		const $_Chat_WidgetId = window.$_Chat_WidgetId;
+
 		const inputQuestion = ref("");
 		const inputMessage = ref("");
+		
 		let isBoxOpen = ref('minimize');
 		let hasScrolledToBottom = ref('');
 		var unsubscribe;
@@ -94,6 +100,8 @@ export default {
 			if (inputQuestion.value.trim().length > 0 && state.data.visitor_id === undefined) {
 				let id = `V${randomNumber(100000000000000,999999999999999)}`;
 				let pendingVisitor = {
+					property_id : $_Chat_Property,
+					widget_id : $_Chat_WidgetId,
 					visitor_id : id,
 					type : 'pending',
 					message : inputQuestion.value,
@@ -124,7 +132,10 @@ export default {
 						timestamp : state.data.timestamp,
 					});
 				}
-				unsubscribe = db.collection("visitors").where("visitor_id", "==", state.data.visitor_id)
+				unsubscribe = db.collection("visitors")
+				.where("visitor_id", "==", state.data.visitor_id)
+				.where("property_id", "==", $_Chat_Property)
+				.where("widget_id", "==", $_Chat_WidgetId)
 				.onSnapshot((querySnapshot) => {
 					querySnapshot.docChanges().forEach((change) => {
 						if (change.type === "modified") {
